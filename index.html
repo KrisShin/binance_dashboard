@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>实时行情看板</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f0f2f5;
+        }
+        .chart-container {
+            width: 80%;
+            max-width: 1000px;
+            padding: 20px;
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="chart-container">
+        <h1>BTC/USDT 实时价格 (最近1小时)</h1>
+        <canvas id="priceChart"></canvas>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+
+
+    <script>
+        // 2. 获取图表要渲染的 canvas 元素
+        const ctx = document.getElementById('priceChart').getContext('2d');
+
+        // 3. 定义获取数据的异步函数
+        async function fetchDataAndRenderChart() {
+            try {
+                // 我们的 FastAPI 服务器地址
+                const apiUrl = 'http://127.0.0.1:8000/api/v1/trades/BTCUSDT?time_range=1h';
+                
+                // 使用 fetch API 调用我们的后端接口
+                const response = await fetch(apiUrl);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                const data = await response.json();
+
+                // 4. 格式化数据以适应 Chart.js 的要求
+                const labels = data.map(trade => new Date(trade.time));
+                const prices = data.map(trade => trade.price);
+
+                // 5. 创建并渲染图表
+                new Chart(ctx, {
+                    type: 'line', // 图表类型为折线图
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: '价格 (USD)',
+                            data: prices,
+                            borderColor: 'rgb(75, 192, 192)',
+                            tension: 0.1, // 线条的曲率
+                            pointRadius: 0 // 不显示数据点，让线条更平滑
+                        }]
+                    },
+                    options: {
+                        scales: {
+                            x: {
+                                type: 'time', // X轴是时间类型
+                                time: {
+                                    unit: 'minute',
+                                    tooltipFormat: 'yyyy-MM-dd HH:mm:ss'
+                                },
+                                title: {
+                                    display: true,
+                                    text: '时间'
+                                }
+                            },
+                            y: {
+                                title: {
+                                    display: true,
+                                    text: '价格'
+                                }
+                            }
+                        }
+                    }
+                });
+
+            } catch (error) {
+                console.error("获取或渲染图表数据失败:", error);
+                // 可以在页面上显示错误信息
+                document.querySelector('.chart-container').innerHTML = '<h1>加载数据失败，请确保API服务器正在运行。</h1>';
+            }
+        }
+
+        // 6. 页面加载后立即执行函数
+        fetchDataAndRenderChart()
+    </script>
+
+</body>
+</html>
