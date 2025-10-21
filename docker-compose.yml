@@ -30,7 +30,8 @@ services:
       - DOCKER_INFLUXDB_INIT_ORG=my-org
       - DOCKER_INFLUXDB_INIT_BUCKET=my-bucket
       - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=my-super-secret-token
-      - INFLUXDB_HTTP_BIND_ADDRESS=:8086  # <--- 添加这一行！
+      - INFLUXDB_HTTP_BIND_ADDRESS=:8086
+      - DOCKER_INFLUXDB_INIT_RETENTION_PERIOD=12h
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8086/health"]
       interval: 10s

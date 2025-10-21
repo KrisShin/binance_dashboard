@@ -1,138 +1,174 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>实时行情看板 (自动刷新)</title>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>21种货币实时看板 (WebSocket)</title>
     <style>
-      /* 样式保持不变 */
-      body {
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-          Helvetica, Arial, sans-serif;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        height: 100vh;
-        margin: 0;
-        background-color: #f0f2f5;
-      }
-      .chart-container {
-        width: 80%;
-        max-width: 1000px;
-        padding: 20px;
-        background-color: white;
-        border-radius: 8px;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-      }
-      h1 {
-        text-align: center;
-        color: #333;
-      }
+        /* 样式和之前 21 货币版完全相同 */
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f0f2f5; padding: 20px; }
+        h1 { text-align: center; color: #333; margin-bottom: 20px; }
+        .chart-grid { display: grid; grid-template-columns: repeat(3, 1fr); grid-gap: 15px; max-width: 1800px; margin: 0 auto; }
+        .chart-container { padding: 15px; background-color: white; border-radius: 8px; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05); }
+        .chart-container h2 { text-align: center; font-size: 1.1rem; margin: 0 0 10px 0; color: #555; }
+        @media (max-width: 1200px) { .chart-grid { grid-template-columns: repeat(2, 1fr); } }
+        @media (max-width: 768px) { .chart-grid { grid-template-columns: 1fr; } }
     </style>
-  </head>
-  <body>
-    <div class="chart-container">
-      <h1>BTC/USDT 实时价格 (自动刷新)</h1>
-      <canvas id="priceChart"></canvas>
-    </div>
+</head>
+<body>
+
+    <h1>21种货币实时看板 (聚合加载 + 实时推送)</h1>
+    <h2 id="ws-status" style="text-align: center; color: #999;">正在连接 WebSocket...</h2>
+    <div class="chart-grid" id="chart-grid-container"></div>
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
 
     <script>
-      // --- 核心改动 ---
-      // 1. 将 chart 实例保存在全局，以便更新
-      let myPriceChart = null;
+        const SYMBOLS_TO_DISPLAY = [
+            'BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'DOGEUSDT', 'BNBUSDT', 'XRPUSDT', 'ADAUSDT',
+            'LINKUSDT', 'UNIUSDT', 'AAVEUSDT', 'SUSHISDT', 'COMPUSDT', 'MKRUSDT', 'GRTUSDT',
+            'AVAXUSDT', 'DOTUSDT', 'MATICUSDT', 'ATOMUSDT', 'SANDUSDT', 'MANAUSDT', 'SHIBUSDT'
+        ];
+        
+        let chartInstances = {};
+        const API_BASE_URL = 'http://127.0.0.1:18000'; // 你的 HTTP API 端口
+        const WS_BASE_URL = 'ws://127.0.0.1:18000'; // 你的 WebSocket API 端口
+        const INITIAL_TIME_RANGE = '15m'; // 初始加载 15 分钟的聚合数据
+        const MAX_DATAPOINTS = 3000; // 图表上最多保持 1000 个点
 
-      const ctx = document.getElementById("priceChart").getContext("2d");
-
-      // 2. 定义获取和更新数据的异步函数
-      async function fetchAndUpdateChart() {
-        // 我们仍然获取最近1小时的数据
-        const timeRange = "1h";
-        const apiUrl = `http://127.0.0.1:8000/api/v1/trades/BTCUSDT?time_range=${timeRange}`;
-
-        // 在控制台打印日志，方便调试
-        console.log("正在获取新数据...");
-
-        try {
-          // 使用 fetch API 调用我们的后端接口
-          const response = await fetch(apiUrl);
-          if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-          }
-          const data = await response.json();
-
-          // 4. 格式化数据以适应 Chart.js 的要求
-          const labels = data.map((trade) => new Date(trade.time));
-          const prices = data.map((trade) => trade.price);
-
-          // 5. 检查图表是否已初始化
-          if (myPriceChart) {
-            // --- 如果图表已存在，则更新数据 ---
-            myPriceChart.data.labels = labels;
-            myPriceChart.data.datasets[0].data = prices;
-            myPriceChart.update(); // 重新渲染图表
-            console.log("图表已更新。");
-          } else {
-            // --- 如果图表不存在 (首次加载)，则创建新图表 ---
-            myPriceChart = new Chart(ctx, {
-              type: "line",
-              data: {
-                labels: labels,
-                datasets: [
-                  {
-                    label: "价格 (USD)",
-                    data: prices,
-                    borderColor: "rgb(75, 192, 192)",
-                    tension: 0.1,
-                    pointRadius: 0,
-                  },
-                ],
-              },
-              options: {
-                animation: false, // 禁用动画，让频繁的更新更平滑
-                scales: {
-                  x: {
-                    type: "time",
-                    time: {
-                      unit: "minute",
-                      tooltipFormat: "yyyy-MM-dd HH:mm:ss",
-                    },
-                    title: {
-                      display: true,
-                      text: "时间",
-                    },
-                  },
-                  y: {
-                    title: {
-                      display: true,
-                      text: "价格",
-                    },
-                  },
-                },
-              },
-            });
-            console.log("图表已初始化。");
-          }
-        } catch (error) {
-          console.error("获取或渲染图表数据失败:", error);
-          // 只有在首次加载失败时才显示错误，避免在后续刷新时因一次网络波动而覆盖图表
-          if (!myPriceChart) {
-            document.querySelector(".chart-container").innerHTML =
-              "<h1>加载数据失败，请确保API服务器正在运行。</h1>";
-          }
+        /**
+         * 动态创建 HTML 结构 (和以前一样)
+         */
+        function createChartContainers() {
+            const gridContainer = document.getElementById('chart-grid-container');
+            for (const symbol of SYMBOLS_TO_DISPLAY) {
+                const container = document.createElement('div');
+                container.className = 'chart-container';
+                const title = document.createElement('h2');
+                title.textContent = symbol;
+                container.appendChild(title);
+                const canvas = document.createElement('canvas');
+                canvas.id = `chart-${symbol}`;
+                container.appendChild(canvas);
+                gridContainer.appendChild(container);
+            }
         }
-      }
 
-      // 6. 页面加载后立即执行一次，以初始化图表
-      fetchAndUpdateChart();
+        /**
+         * --- 1. 首次加载函数 (现在只用于初始化) ---
+         * 它调用的是返回 1s 聚合数据的 GET 接口
+         */
+        async function loadInitialChartData(symbol) {
+            const apiUrl = `${API_BASE_URL}/api/v1/trades/${symbol}?time_range=${INITIAL_TIME_RANGE}`;
+            const canvasId = `chart-${symbol}`;
+            
+            try {
+                const response = await fetch(apiUrl);
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                const data = await response.json();
+                
+                const labels = data.map(trade => new Date(trade.time));
+                const prices = data.map(trade => trade.price);
 
-      // 7. 设置一个定时器 (Interval)，每 10 秒钟自动调用一次更新函数
-      // 10000 毫秒 = 10 秒
-      const updateInterval = 500;
-      setInterval(fetchAndUpdateChart, updateInterval);
-      // --- 核心改动结束 ---
+                const ctx = document.getElementById(canvasId).getContext('2d');
+                chartInstances[symbol] = new Chart(ctx, {
+                    type: 'line',
+                    data: { labels: labels, datasets: [{
+                        label: '价格 (USD)',
+                        data: prices,
+                        borderColor: 'rgb(54, 162, 235)',
+                        tension: 0.1,
+                        pointRadius: 0
+                    }]},
+                    options: {
+                        animation: false,
+                        scales: {
+                            x: { type: 'time', time: { unit: 'minute', tooltipFormat: 'HH:mm:ss' } },
+                            y: { title: { display: false } }
+                        },
+                        plugins: { legend: { display: false } }
+                    }
+                });
+            } catch (error) {
+                console.error(`Failed to load initial data for ${symbol}:`, error);
+            }
+        }
+
+        /**
+         * --- 2. 启动 WebSocket 实时更新 ---
+         */
+        function startWebSocketListener() {
+            const ws = new WebSocket(`${WS_BASE_URL}/ws/live`);
+            const statusEl = document.getElementById('ws-status');
+
+            ws.onopen = () => {
+                console.log("WebSocket connected!");
+                statusEl.textContent = "WebSocket 已连接 (实时更新中)";
+                statusEl.style.color = 'green';
+            };
+
+            ws.onmessage = (event) => {
+                // event.data 是从后端推送过来的原始交易 JSON 字符串
+                const trade = JSON.parse(event.data);
+                const symbol = trade.s; // 币安原始数据里, 's' 是 'symbol'
+
+                // 检查这个交易是否是我们关心的
+                const chart = chartInstances[symbol];
+                if (!chart) {
+                    return; // 不关心这个货币，忽略
+                }
+
+                // --- 核心：将新数据点追加到图表 ---
+                const chartLabels = chart.data.labels;
+                const chartData = chart.data.datasets[0].data;
+
+                chartLabels.push(new Date(trade.T)); // 'T' 是交易时间戳
+                chartData.push(parseFloat(trade.p)); // 'p' 是价格
+
+                // 维持图表数据点数量，移除旧数据
+                while (chartData.length > MAX_DATAPOINTS) {
+                    chartLabels.shift();
+                    chartData.shift();
+                }
+                
+                // 更新图表 (这个操作现在非常轻量)
+                chart.update();
+            };
+
+            ws.onclose = () => {
+                console.log("WebSocket disconnected. Retrying in 3 seconds...");
+                statusEl.textContent = "WebSocket 已断开，3秒后重连...";
+                statusEl.style.color = 'red';
+                // 简单的自动重连
+                setTimeout(startWebSocketListener, 3000);
+            };
+
+            ws.onerror = (error) => {
+                console.error("WebSocket error:", error);
+                statusEl.textContent = "WebSocket 连接错误";
+                statusEl.style.color = 'red';
+                ws.close();
+            };
+        }
+
+        // --- 页面启动逻辑 ---
+        async function init() {
+            // 1. 先动态创建HTML结构
+            createChartContainers();
+            
+            // 2. 并发加载所有图表的“历史数据”(聚合)
+            console.log("正在并发加载 21 个图表的历史数据...");
+            await Promise.all(SYMBOLS_TO_DISPLAY.map(symbol => loadInitialChartData(symbol)));
+            console.log("所有历史数据加载完毕!");
+
+            // 3. (最重要) 启动 WebSocket 监听器
+            // 只有在历史数据加载完毕后，才开始接收实时数据
+            startWebSocketListener();
+        }
+        
+        init();
+
     </script>
-  </body>
+</body>
 </html>

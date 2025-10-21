@@ -3,3 +3,4 @@ fastapi[all]
 websockets
 pika
 influxdb-client
+aio-pika

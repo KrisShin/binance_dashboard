@@ -1,47 +1,67 @@
-# producer.py
+# producer.py (21并发版)
 import asyncio
 import websockets
+import json
 import pika
 
 # --- RabbitMQ 配置 ---
 RABBITMQ_HOST = 'rabbitmq'
 QUEUE_NAME = 'trades'
 
-# 建立到RabbitMQ的连接
-connection = pika.BlockingConnection(pika.ConnectionParameters(RABBITMQ_HOST))
-channel = connection.channel()
+# --- 21种热门货币列表 ---
+SYMBOLS_TO_SUBSCRIBE = [
+    # Top Tiers
+    'btcusdt', 'ethusdt', 'solusdt', 'dogeusdt', 'bnbusdt', 'xrpusdt', 'adausdt',
+    # DeFi
+    'linkusdt', 'uniusdt', 'aaveusdt', 'sushiusdt', 'compusdt', 'mkrusdt', 'grtusdt',
+    # L1/L2 & Metaverse
+    'avaxusdt', 'dotusdt', 'maticusdt', 'atomusdt', 'sandusdt', 'manausdt', 'shibusdt'
+] # 总共 21 个
 
-# 声明一个队列，如果队列不存在，则会被创建。durable=True意味着队列在RabbitMQ重启后依然存在
-channel.queue_declare(queue=QUEUE_NAME, durable=True)
-print(f"RabbitMQ: 已连接并声明队列 '{QUEUE_NAME}'")
+async def stream_coin(symbol: str, channel):
+    """
+    一个专门的协程，负责连接一种货币的WebSocket，
+    并将其数据发送到RabbitMQ。
+    (此函数内容与之前4货币版本完全相同)
+    """
+    uri = f"wss://stream.binance.com:9443/ws/{symbol}@trade"
+    
+    while True:
+        try:
+            async with websockets.connect(uri) as websocket:
+                print(f"[Producer] 成功连接到: {symbol}")
+                while True:
+                    message = await websocket.recv()
+                    channel.basic_publish(
+                        exchange='',
+                        routing_key=QUEUE_NAME,
+                        body=message,
+                        properties=pika.BasicProperties(
+                            delivery_mode=2,
+                        ))
+        except Exception as e:
+            print(f"[Producer] {symbol} 连接断开: {e}. 5秒后重试...")
+            await asyncio.sleep(5)
 
+async def main():
+    """
+    主函数，负责建立RabbitMQ连接，并并发启动所有货币的监听任务
+    """
+    connection = pika.BlockingConnection(pika.ConnectionParameters(RABBITMQ_HOST))
+    channel = connection.channel()
+    channel.queue_declare(queue=QUEUE_NAME, durable=True)
+    print(f"[Producer] RabbitMQ: 已连接并声明队列 '{QUEUE_NAME}'")
 
-# --- Binance WebSocket 配置 ---
-BINANCE_URI = "wss://stream.binance.com:9443/ws/btcusdt@trade"
-
-
-async def binance_producer():
-    """连接到币安，接收数据并发送到RabbitMQ"""
-    async with websockets.connect(BINANCE_URI) as websocket:
-        print(f"成功连接到: {BINANCE_URI}")
-        while True:
-            message = await websocket.recv()
-            # 将收到的原始消息（字符串）直接发送到队列
-            channel.basic_publish(
-                exchange='',  # 使用默认交换机
-                routing_key=QUEUE_NAME,  # 路由键就是队列名
-                body=message,  # 消息内容
-                properties=pika.BasicProperties(
-                    delivery_mode=2,  # 让消息持久化
-                ),
-            )
-            # (可选) 可以在这里打印一下，确认生产者在工作
-            # print(f" [x] 已发送消息到RabbitMQ")
-
+    tasks = []
+    for symbol in SYMBOLS_TO_SUBSCRIBE:
+        tasks.append(stream_coin(symbol, channel))
+    
+    print(f"[Producer] 即将并发启动 {len(tasks)} 个数据流...")
+    # asyncio.gather 会并发运行所有 21 个任务
+    await asyncio.gather(*tasks)
 
 if __name__ == "__main__":
     try:
-        asyncio.run(binance_producer())
+        asyncio.run(main())
     except KeyboardInterrupt:
-        print("程序已停止")
-        connection.close()
+        print("[Producer] 程序已停止")
