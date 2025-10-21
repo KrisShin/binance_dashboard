@@ -5,14 +5,13 @@ from influxdb_client import InfluxDBClient, Point
 from influxdb_client.client.write_api import SYNCHRONOUS
 
 # --- InfluxDB 配置 ---
-INFLUXDB_URL = "http://localhost:8086"
+INFLUXDB_URL = "http://influxdb:8086"
 INFLUXDB_TOKEN = "my-super-secret-token"  # 这是你在docker命令中设置的TOKEN
 INFLUXDB_ORG = "my-org"
 INFLUXDB_BUCKET = "my-bucket"
 
 # --- RabbitMQ 配置 ---
-RABBITMQ_HOST = 'localhost'
-RABBITMQ_PORT = '7672'
+RABBITMQ_HOST = 'rabbitmq'
 QUEUE_NAME = 'trades'
 
 
@@ -25,7 +24,7 @@ def main():
     print("InfluxDB: 已成功连接")
 
     # --- 初始化 RabbitMQ Connection ---
-    connection = pika.BlockingConnection(pika.ConnectionParameters(host=RABBITMQ_HOST, port=RABBITMQ_PORT))
+    connection = pika.BlockingConnection(pika.ConnectionParameters(RABBITMQ_HOST))
     channel = connection.channel()
     channel.queue_declare(queue=QUEUE_NAME, durable=True)
     print(' [*] 等待消息中... 按 CTRL+C 退出')

@@ -1,0 +1,78 @@
+# docker-compose.yml
+version: "3.8"
+
+services:
+  # 1. RabbitMQ 服务 (和以前一样，但由compose管理)
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rabbitmq
+    ports:
+      - "7672:5672" # 供服务连接
+      - "17672:15672" # 供Web UI访问
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_running"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # 2. InfluxDB 服务 (和以前一样，但由compose管理)
+  influxdb:
+    image: influxdb:2.7
+    container_name: influxdb
+    ports:
+      - "9086:8086"
+    volumes:
+      - influxdb_data:/var/lib/influxdb2
+    environment:
+      - DOCKER_INFLUXDB_INIT_MODE=setup
+      - DOCKER_INFLUXDB_INIT_USERNAME=my-user
+      - DOCKER_INFLUXDB_INIT_PASSWORD=my-password
+      - DOCKER_INFLUXDB_INIT_ORG=my-org
+      - DOCKER_INFLUXDB_INIT_BUCKET=my-bucket
+      - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=my-super-secret-token
+      - INFLUXDB_HTTP_BIND_ADDRESS=:8086  # <--- 添加这一行！
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8086/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # 3. 生产者服务 (使用我们的Dockerfile构建)
+  producer:
+    build: . # 使用当前目录的 Dockerfile
+    container_name: producer
+    command: ["python", "producer.py"] # 指定启动这个容器时要运行的命令
+    depends_on:
+      rabbitmq:
+        condition: service_healthy # 等待RabbitMQ健康后再启动
+    restart: always
+
+  # 4. 消费者服务 (使用我们的Dockerfile构建)
+  consumer:
+    build: .
+    container_name: consumer
+    command: ["python", "consumer.py"]
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      influxdb:
+        condition: service_healthy # 等待RabbitMQ和InfluxDB都健康
+    restart: always # 如果失败了，自动重启
+
+  # 5. API服务 (使用我们的Dockerfile构建)
+  api_server:
+    build: .
+    container_name: api_server
+    # 启动 uvicorn, 必须监听 0.0.0.0 才能从外部访问
+    command:
+      ["uvicorn", "api_server:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "18000:8000" # 将你主机的8000端口映射到容器的8000端口
+    depends_on:
+      influxdb:
+        condition: service_healthy # 等待InfluxDB健康
+    restart: on-failure
+
+# 定义一个具名卷，用于持久化 InfluxDB 的数据
+volumes:
+  influxdb_data:

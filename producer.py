@@ -1,16 +1,14 @@
 # producer.py
 import asyncio
 import websockets
-import json
 import pika
 
 # --- RabbitMQ 配置 ---
-RABBITMQ_HOST = 'localhost'
-RABBITMQ_PORT = '7672'
+RABBITMQ_HOST = 'rabbitmq'
 QUEUE_NAME = 'trades'
 
 # 建立到RabbitMQ的连接
-connection = pika.BlockingConnection(pika.ConnectionParameters(host=RABBITMQ_HOST, port=RABBITMQ_PORT))
+connection = pika.BlockingConnection(pika.ConnectionParameters(RABBITMQ_HOST))
 channel = connection.channel()
 
 # 声明一个队列，如果队列不存在，则会被创建。durable=True意味着队列在RabbitMQ重启后依然存在

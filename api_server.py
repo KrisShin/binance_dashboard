@@ -1,13 +1,15 @@
 # api_server.py
+import os
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from influxdb_client import InfluxDBClient
 from pydantic import BaseModel
 from typing import List
 
 # --- InfluxDB 配置 ---
 # (和你的consumer.py中的配置保持一致)
-INFLUXDB_URL = "http://localhost:8086"
+INFLUXDB_URL = "http://influxdb:8086"
 INFLUXDB_TOKEN = "my-super-secret-token"
 INFLUXDB_ORG = "my-org"
 INFLUXDB_BUCKET = "my-bucket"
@@ -35,15 +37,29 @@ class TradeData(BaseModel):
     symbol: str
 
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
 # --- InfluxDB Client 实例 ---
 # 在应用启动时创建，以便复用
 influx_client = InfluxDBClient(url=INFLUXDB_URL, token=INFLUXDB_TOKEN, org=INFLUXDB_ORG)
 query_api = influx_client.query_api()
 
 
+@app.get("/", response_class=FileResponse)
+async def read_index():
+    """
+    提供前端 index.html 页面
+    """
+    index_path = os.path.join(BASE_DIR, "index.html")
+    if not os.path.exists(index_path):
+        raise HTTPException(status_code=404, detail="index.html not found")
+    return FileResponse(index_path)
+
+
 # --- API Endpoint ---
 @app.get("/api/v1/trades/{symbol}", response_model=List[TradeData])
-async def get_trades(symbol: str, time_range: str = "1h"):
+async def get_trades(symbol: str, time_range: str = "15m"):
     """
     获取指定交易对在特定时间范围内的交易数据。
 
@@ -83,9 +99,3 @@ async def get_trades(symbol: str, time_range: str = "1h"):
     except Exception as e:
         # 如果发生错误，返回一个HTTP 500错误
         raise HTTPException(status_code=500, detail=str(e))
-
-
-# --- 应用根路径 ---
-@app.get("/")
-def read_root():
-    return {"message": "欢迎来到实时行情API, 请访问 /docs 查看API文档"}

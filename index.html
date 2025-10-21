@@ -1,111 +1,138 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>实时行情看板</title>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>实时行情看板 (自动刷新)</title>
     <style>
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            margin: 0;
-            background-color: #f0f2f5;
-        }
-        .chart-container {
-            width: 80%;
-            max-width: 1000px;
-            padding: 20px;
-            background-color: white;
-            border-radius: 8px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        }
-        h1 {
-            text-align: center;
-            color: #333;
-        }
+      /* 样式保持不变 */
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          Helvetica, Arial, sans-serif;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+        margin: 0;
+        background-color: #f0f2f5;
+      }
+      .chart-container {
+        width: 80%;
+        max-width: 1000px;
+        padding: 20px;
+        background-color: white;
+        border-radius: 8px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+      }
+      h1 {
+        text-align: center;
+        color: #333;
+      }
     </style>
-</head>
-<body>
-
+  </head>
+  <body>
     <div class="chart-container">
-        <h1>BTC/USDT 实时价格 (最近1小时)</h1>
-        <canvas id="priceChart"></canvas>
+      <h1>BTC/USDT 实时价格 (自动刷新)</h1>
+      <canvas id="priceChart"></canvas>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
 
-
     <script>
-        // 2. 获取图表要渲染的 canvas 元素
-        const ctx = document.getElementById('priceChart').getContext('2d');
+      // --- 核心改动 ---
+      // 1. 将 chart 实例保存在全局，以便更新
+      let myPriceChart = null;
 
-        // 3. 定义获取数据的异步函数
-        async function fetchDataAndRenderChart() {
-            try {
-                // 我们的 FastAPI 服务器地址
-                const apiUrl = 'http://127.0.0.1:8000/api/v1/trades/BTCUSDT?time_range=1h';
-                
-                // 使用 fetch API 调用我们的后端接口
-                const response = await fetch(apiUrl);
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
-                const data = await response.json();
+      const ctx = document.getElementById("priceChart").getContext("2d");
 
-                // 4. 格式化数据以适应 Chart.js 的要求
-                const labels = data.map(trade => new Date(trade.time));
-                const prices = data.map(trade => trade.price);
+      // 2. 定义获取和更新数据的异步函数
+      async function fetchAndUpdateChart() {
+        // 我们仍然获取最近1小时的数据
+        const timeRange = "1h";
+        const apiUrl = `http://127.0.0.1:8000/api/v1/trades/BTCUSDT?time_range=${timeRange}`;
 
-                // 5. 创建并渲染图表
-                new Chart(ctx, {
-                    type: 'line', // 图表类型为折线图
-                    data: {
-                        labels: labels,
-                        datasets: [{
-                            label: '价格 (USD)',
-                            data: prices,
-                            borderColor: 'rgb(75, 192, 192)',
-                            tension: 0.1, // 线条的曲率
-                            pointRadius: 0 // 不显示数据点，让线条更平滑
-                        }]
+        // 在控制台打印日志，方便调试
+        console.log("正在获取新数据...");
+
+        try {
+          // 使用 fetch API 调用我们的后端接口
+          const response = await fetch(apiUrl);
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+          }
+          const data = await response.json();
+
+          // 4. 格式化数据以适应 Chart.js 的要求
+          const labels = data.map((trade) => new Date(trade.time));
+          const prices = data.map((trade) => trade.price);
+
+          // 5. 检查图表是否已初始化
+          if (myPriceChart) {
+            // --- 如果图表已存在，则更新数据 ---
+            myPriceChart.data.labels = labels;
+            myPriceChart.data.datasets[0].data = prices;
+            myPriceChart.update(); // 重新渲染图表
+            console.log("图表已更新。");
+          } else {
+            // --- 如果图表不存在 (首次加载)，则创建新图表 ---
+            myPriceChart = new Chart(ctx, {
+              type: "line",
+              data: {
+                labels: labels,
+                datasets: [
+                  {
+                    label: "价格 (USD)",
+                    data: prices,
+                    borderColor: "rgb(75, 192, 192)",
+                    tension: 0.1,
+                    pointRadius: 0,
+                  },
+                ],
+              },
+              options: {
+                animation: false, // 禁用动画，让频繁的更新更平滑
+                scales: {
+                  x: {
+                    type: "time",
+                    time: {
+                      unit: "minute",
+                      tooltipFormat: "yyyy-MM-dd HH:mm:ss",
                     },
-                    options: {
-                        scales: {
-                            x: {
-                                type: 'time', // X轴是时间类型
-                                time: {
-                                    unit: 'minute',
-                                    tooltipFormat: 'yyyy-MM-dd HH:mm:ss'
-                                },
-                                title: {
-                                    display: true,
-                                    text: '时间'
-                                }
-                            },
-                            y: {
-                                title: {
-                                    display: true,
-                                    text: '价格'
-                                }
-                            }
-                        }
-                    }
-                });
-
-            } catch (error) {
-                console.error("获取或渲染图表数据失败:", error);
-                // 可以在页面上显示错误信息
-                document.querySelector('.chart-container').innerHTML = '<h1>加载数据失败，请确保API服务器正在运行。</h1>';
-            }
+                    title: {
+                      display: true,
+                      text: "时间",
+                    },
+                  },
+                  y: {
+                    title: {
+                      display: true,
+                      text: "价格",
+                    },
+                  },
+                },
+              },
+            });
+            console.log("图表已初始化。");
+          }
+        } catch (error) {
+          console.error("获取或渲染图表数据失败:", error);
+          // 只有在首次加载失败时才显示错误，避免在后续刷新时因一次网络波动而覆盖图表
+          if (!myPriceChart) {
+            document.querySelector(".chart-container").innerHTML =
+              "<h1>加载数据失败，请确保API服务器正在运行。</h1>";
+          }
         }
+      }
 
-        // 6. 页面加载后立即执行函数
-        fetchDataAndRenderChart()
+      // 6. 页面加载后立即执行一次，以初始化图表
+      fetchAndUpdateChart();
+
+      // 7. 设置一个定时器 (Interval)，每 10 秒钟自动调用一次更新函数
+      // 10000 毫秒 = 10 秒
+      const updateInterval = 500;
+      setInterval(fetchAndUpdateChart, updateInterval);
+      // --- 核心改动结束 ---
     </script>
-
-</body>
+  </body>
 </html>
